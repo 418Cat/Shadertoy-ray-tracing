@@ -36,7 +36,7 @@ struct Interval
 };
 
 
-// Pseud-random function found on internet
+// Pseudo-random function found on internet
 float rnd(vec2 xy, float seed){
        return fract(tan(distance(xy*1.61803398874989484820459, xy)*seed)*xy.x);
 }

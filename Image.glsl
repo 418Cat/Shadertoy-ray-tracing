@@ -29,17 +29,18 @@ HitRecord sphere_intersect(Ray r, Sphere s, Interval i)
         
         if(root < i.t_min || root > i.t_max)
         {
-        return HitRecord(false,
-            0.,
-            vec3(0., 0., 0.),
-            vec3(0., 0., 0.),
-            s.material);
+            // No root in range given, return false
+            return HitRecord(false,
+                0.,
+                vec3(0., 0., 0.),
+                vec3(0., 0., 0.),
+                s.material);
         }
     }
     
     vec3 hit_point = r.origin + root*r.direction;
     vec3 normal = hit_point - s.center;
-    normal = normal / length(normal);
+    normal = normal / s.radius; // Normalize the normal vec
     
     return HitRecord(true, root, hit_point, normal, s.material);
 }
@@ -95,7 +96,7 @@ vec3 ray_color(Ray r, vec2 coords)
                 sphere_intersect(
                     current_ray,
                     spheres[sphere_i],
-                    Interval(0.01, hr.t)
+                    Interval(0.001, hr.t)
                 );
                 
             if(tmp_hr.hasHit) hr = tmp_hr;
@@ -103,13 +104,17 @@ vec3 ray_color(Ray r, vec2 coords)
         
         /*
             If the ray has hit a sphere,
-            add the sphere color
+            add sphere color and reflect
             else add the sky and break out
         */
         if(hr.hasHit)
         {
             if(hr.material.type == DIFFUSE)
             {
+                /*
+                    Generate a random vec and turn
+                    it if it's facing the wrong way
+                */
                 vec3 rand_v = rand_unit_vec(coords, fract(iTime));
                 if(dot(rand_v, hr.normal) < 0.) rand_v = -rand_v;
                 
@@ -117,13 +122,20 @@ vec3 ray_color(Ray r, vec2 coords)
             }
             if(hr.material.type == MIRROR)
             {
-                current_ray = Ray(hr.point, reflect(current_ray.direction, hr.normal));
+                // Reflect
+                vec3 reflected_r = reflect(current_ray.direction, hr.normal);
+                
+                current_ray = Ray(hr.point, reflected_r);
             }
             
             col += hr.material.color * pow(0.5, ray_i);
         }
         else
         {
+            /*
+                Sky color shamelessly stolen from the
+                book "Ray Tracing in One Weekend"
+            */
             vec3 unit_direction = current_ray.direction/length(current_ray.direction);
             float a = 0.5*(unit_direction.y + 1.0);
             col += (1.0-a)*vec3(1.0, 1.0, 1.0) + a*vec3(0.5, 0.7, 1.0);
@@ -149,20 +161,54 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     // Normalized pixel coordinates (from 0 to 1)
     vec2 uv = toUv(fragCoord);
     
-    vec3 camera_point = vec3(0., 0., 0.);
     float aspect_ratio = iResolution.x/iResolution.y;
     vec2 viewport_size = vec2(aspect_ratio, 1.);
     vec2 pixel_delta = viewport_size / iResolution.xy;
     
     vec3 view_vector = vec3(viewport_size * uv, 1.);
+    
+    // Rotation matrix, unused for now
+    mat3 rotation = mat3(
+        1., 0., 0.,
+        0., 1., 0.,
+        0., 0., 1.
+    );
+    
+    view_vector *= rotation;
+    
+    vec3 camera_point = vec3(0., 0., 0.);
+    
     Ray view_ray = Ray(camera_point, view_vector);
     
-    vec3 col = ray_color(
-                Ray(camera_point,
-                    view_vector),
-                fragCoord);
+    vec3 col = vec3(0., 0., 0.);
+    
+    // Multi-sampling loop
+    float i = 0.;
+    for(i = 0.; i < 10.; i++)
+    {
+        // Random sub-pixel offset for view_vector
+        vec2 offset = vec2(
+                        (pixel_delta.x) * rnd(fragCoord, fract(iTime+0.1)),
+                        (pixel_delta.y) * rnd(fragCoord, fract(iTime+0.2))
+        );
+        
+        /*
+            Generating a vec2 which depends on
+            the iteration number, else each 
+            pseudo-random number generated will
+            be the same per frame so multi-sampling
+            won't work
+        */
+        vec2 rng_seed = fragCoord + vec2(rnd(-fragCoord, i), rnd(fragCoord.yx, -i));
+    
+        col += ray_color(
+                    Ray(camera_point,
+                        view_vector + vec3(offset, 0.)),
+                    rng_seed
+        );
+    }
     
 
     // Output to screen
-    fragColor = vec4(col,1.0);
+    fragColor = vec4(col / i,1.0);
 }
